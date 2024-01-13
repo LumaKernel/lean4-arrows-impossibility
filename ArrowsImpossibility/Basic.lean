@@ -40,6 +40,7 @@ def Option (v : Voting) := { k : Nat // k < v.m }
 def Vote (_ : Voting) := { r : DecidableRelation Nat // r.rel.is_strictly_totally_ordered }
 #check decide
 namespace Vote
+#check (fun x y : Bool => (¬((x == y) = true)))
 def default : Vote v := {
     val := ⟨fun x y => x < y, Nat.decLt⟩
     property := by
@@ -85,15 +86,30 @@ def default : Vote v := {
   }
 instance : Inhabited (Vote v) where
   default := default
-theorem eq_false (a b : α) [DecidableEq α] : ((a != b) = false) ↔ ((a == b) = true) := by
-  sorry
+theorem eq_false (a b : Nat) : ((a != b) = false) ↔ ((a == b) = true) := by
+  apply Iff.intro
+  . intro h
+    have h := congrArg (!·) h
+    have h : (!!(a == b)) = true := h
+    rw [Bool.not_not] at h
+    assumption
+  . intro h
+    have h := congrArg (!·) h
+    assumption
+
+theorem not_eq_not (a b : Bool) : ((!a) = (!b)) → (a = b)  := by
+  intro
+  cases a <;> cases b <;> first | rfl | contradiction
+
+theorem ne_bool (a b : Bool) : (¬a = b) ↔ ((!a) = b)  := by
+  cases a <;> cases b <;> constructor <;> (intros; first | assumption | contradiction | rfl | (intro; contradiction))
 
 -- 投票に対し，特定の x を最優先しつつ他を変更しない投票を作る
-def prec_of (v : Vote vs) (x : Nat) : Vote vs := {
+def with_prec (v : Vote vs) (x : Nat) : Vote vs := {
   val :=
     let rel_b := fun y z =>
-      if y = x then z != x
-      else if z = x then false
+      if y == x then z != x
+      else if z == x then false
       else
         let {rel, dec} := v.val
         @decide (rel y z) (dec y z)
@@ -106,18 +122,25 @@ def prec_of (v : Vote vs) (x : Nat) : Vote vs := {
           Decidable.isFalse (by assumption)
     }
   property := by
+    let ⟨v_trans, v_trichotomy⟩ := v.property
     unfold Relation.is_strictly_totally_ordered
+    -- simp only [*]
     simp
+    -- sorry
     repeat (any_goals apply And.intro)
-    . unfold Relation.is_trans
+    . unfold Relation.is_trans at *
+      -- sorry
       intro _ _ _ h1 h2
       repeat any_goals (
-        first | split at h1 | split at h2 | simp at h1 | simp at h2 | simp | split
-        try first | assumption | contradiction
+        first | split at h1 | split at h2 | simp at h1 | simp at h2 | simp | split | assumption | contradiction
+        -- first | split at * | split | assumption | contradiction | rw [ne_bool] at *
       )
-      apply v.property.left
-      assumption
-      assumption
+      -- apply @decide_eq_true _ (v.val.dec _ _) _
+      -- have h1 := @of_decide_eq_true _ (v.val.dec _ _) h1
+      -- have h2 := @of_decide_eq_true _ (v.val.dec _ _) h2
+      apply v_trans
+      exact h1
+      exact h2
     . unfold Relation.is_trichotomy
       intro a b
       have h := v.property.right a b
@@ -132,63 +155,126 @@ def prec_of (v : Vote vs) (x : Nat) : Vote vs := {
         cases h
         all_goals rename_i h0 h
       )
-      apply Or.inl
-      repeat any_goals constructor
-      repeat any_goals (
-        first | simp | split | assumption | contradiction | trivial
-      )
-      . have : b = x := sorry
-        have xx := eq_false b x
-        have xxx := xx.mpr
-        apply xxx
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-      -- all_goals try (
-      --   apply Or.inl
-      --   repeat cases
-
-      -- )
-
-      -- all_goals (
-      --   cases h with
-      --   case inl h | inr h=>
-      -- )
-
       -- apply Or.inl
+      -- repeat any_goals constructor
+      repeat any_goals (
+        first
+        | simp | split | assumption | contradiction
+        | (
+          fail_if_success have : _ := ‹a = b›
+          have : a = b := ‹a = x›.trans (‹b = x›.symm)
+        )
+        | (
+          fail_if_success have : _ := ‹b = a›
+          have : b = a := ‹a = b›.symm
+        )
+        | (
+          fail_if_success have : _ := ‹x = a›
+          have : x = a := ‹b = x› ▸ ‹b = a›
+        )
+        | (
+          fail_if_success have : _ := ‹a = x›
+          have : a = x := ‹x = a›.symm
+        )
+        | (
+          fail_if_success have : _ := ‹¬b = a›
+          have : ¬b = a := ‹a = x› ▸ ‹¬b = x›
+        )
+        | (
+          fail_if_success have : _ := ‹b = x›
+          have : b = x := ‹b = a›.trans ‹a = x›
+        )
+        -- | have : b = x := ‹b = a›.trans ‹a = x›
+        -- | apply (eq_false _ _).mpr
+        -- | (
+        --   have : b = x := calc
+        --     b = a := ‹a = b›.symm
+        --     _ = x := by assumption
+        --   )
+        | (
+          apply Or.inl
+          repeat any_goals constructor
+          repeat any_goals (
+            first
+            | simp | split | assumption | contradiction
+            | apply (eq_false _ _).mpr
+            | (apply not_eq_not; simp only [show (!false) = true by rfl, not_decide_eq_true])
+          )
+          done
+        )
+        | (
+          apply Or.inr
+          repeat any_goals constructor
+          repeat any_goals (
+            first
+            | simp | split | assumption | contradiction
+            | apply (eq_false _ _).mpr
+            | (apply not_eq_not; simp only [show (!false) = true by rfl, not_decide_eq_true])
+          )
+          done
+        )
+        | (
+          apply Or.inr; apply Or.inr
+          repeat any_goals constructor
+          repeat any_goals (
+            first
+            | simp | split | assumption | contradiction
+            | apply (eq_false _ _).mpr
+            | (apply not_eq_not; simp only [show (!false) = true by rfl, not_decide_eq_true])
+          )
+          done
+        )
+        -- | (
+        --   apply Or.inr; apply Or.inl
+        --   repeat any_goals constructor
+        --   repeat any_goals (
+        --     first | simp | split | assumption | contradiction | apply (eq_false _ _).mpr
+        --   )
+        -- )
+        -- | (
+        --   apply Or.inr; apply Or.inr
+        --   repeat any_goals constructor
+        --   repeat any_goals (
+        --     first | simp | split | assumption | contradiction | apply (eq_false _ _).mpr
+        --   )
+        -- )
+      )
+      -- . apply Or.inl
+      --   repeat any_goals constructor
+      --   simp only [show (!false) = true by simp, not_decide_eq_true]
+      --   . assumption
+      --   . apply not_eq_not
+      --     simp only [show (!false) = true by simp, not_decide_eq_true]
+      --     assumption
+          -- rw [←not_decide_eq_true] at h0
+          -- have h0 := congrArg (!·) h0
+      done
 
-      sorry
-      -- split at h1
-      -- all_goals (split at h2; split; assumption)
-
-        -- rw [‹(a = x) = true›]
-        -- try rw [‹(b = x) = true›]
-        -- try rw [‹(c = x) = true›]
-        -- try rw [‹(a != x) = true›]
-        -- try rw [‹(b != x) = true›]
-        -- try rw [‹(c != x) = true›]
-
-
-
-
-
-
+      -- . have : b = x := calc
+      --     b = a := ‹a = b›.symm
+      --     _ = x := by assumption
+      --   -- apply (eq_false _ _).mpr
+      --   -- simp
+      --   assumption
 }
+#print axioms Quot.sound
+#print axioms prec_of
+#print axioms decide_eq_true
+#print axioms of_decide_eq_true
+#print axioms not_decide_eq_true
+#print axioms decide
+#print axioms Decidable
+#print axioms not_eq_not
+#print axioms eq_false
+#print axioms Relation.is_strictly_totally_ordered
+theorem hhh : a → ¬a → b := by
+  intros
+  contradiction
+theorem ggg (a b : Bool): ((a == b) = true) → a = b := by
+  intro h
+  cases a <;> cases b <;> first | assumption | contradiction | rfl
+#print axioms ggg
+#print axioms hhh
 end Vote
 -- 全員の投票の型
 def Votes (v : Voting) := v.Member → v.Vote
@@ -213,11 +299,26 @@ def size (g : Group v) : Nat :=
   size' g v.n (Nat.le_refl ..)
 def is_sub_of (g g' : Group v) := ∀i, g i → g' i
 def is_sup_of (g g' : Group v) := ∀i, g' i → g i
+def take_another (g : Group v) (sz3 : 3 ≤ g.size) (x y : Nat) : ∃z, g z ∧ z.val ≠ x ∧ z.val ≠ y := by
+  sorry
 def split (g : Group v) : 2 ≤ g.size → ∃g1 g2 : Group v,
   0 < g1.size ∧ 0 < g2.size ∧ g.is_sup_of g1 ∧ g.is_sup_of g2 := by
   sorry
 
 end Group
+def whole_group (v : Voting) : ∃g : Group v, g.size = v.n := by
+  exists (fun _ => true)
+  unfold Group.size
+  unfold Group.size.size'
+  generalize h : v.n = v_n
+  induction v.n
+  . unfold Group.size
+    unfold Group.size.size'
+    simp
+
+
+
+
 end Voting
 
 structure VotingSystem :=
@@ -329,22 +430,21 @@ theorem e (vs : VotingSystem) (hiia : vs.iia) :
     ∃g' : vs.v.Group, ∃z w, g'.size < g.size ∧ is_weakly_decisive g' z w
   ) := by
   intro g x y ⟨h2, _⟩
+  let z := g.take_another
   let ⟨g1, g2, _, _, _, _⟩ := g.split h2
-  let votes : vs.v.Votes :=
-    let val := fun i =>
-      if g1 i then
-        -- x < y < z < (others)
-        Voting.Vote.default
-      else if g2 i then
-        -- z < x < y < (others)
-        Voting.Vote.default
-      else
-        -- y < z < x < (others)
-        Voting.Vote.default
-    {
-      val := val
-      property := by sorry
-    }
+  let votes : vs.v.Votes := fun i =>
+    if g1 i then
+      -- x < y < z < (others)
+      let v := Voting.Vote.default
+      let v := v.with_prec z
+      v
+    else if g2 i then
+      -- z < x < y < (others)
+      Voting.Vote.default
+    else
+      -- y < z < x < (others)
+      Voting.Vote.default
+
   done
 
 end VotingSystem
